@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>AI-чат з підрахунком вартості</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #0f172a;
+            color: #e5e7eb;
+        }
+        header {
+            padding: 16px 24px;
+            background: #020617;
+            border-bottom: 1px solid #1f2937;
+        }
+        h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+        main {
+            max-width: 900px;
+            margin: 24px auto;
+            padding: 0 16px 32px;
+        }
+        .card {
+            background: #020617;
+            border-radius: 10px;
+            padding: 16px 18px;
+            margin-bottom: 16px;
+            border: 1px solid #1f2937;
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 16px;
+        }
+        label {
+            display: block;
+            margin-top: 8px;
+            font-size: 13px;
+            color: #9ca3af;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 4px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid #374151;
+            background: #020617;
+            color: #e5e7eb;
+            resize: vertical;
+        }
+        textarea {
+            min-height: 80px;
+        }
+        button {
+            margin-top: 10px;
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            background: #2563eb;
+            color: white;
+        }
+        button:disabled {
+            background: #4b5563;
+            cursor: not-allowed;
+        }
+        .row {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .row > .card {
+            flex: 1 1 260px;
+        }
+        pre {
+            background: #020617;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 12px;
+            overflow-x: auto;
+            border: 1px solid #1f2937;
+        }
+        .small {
+            font-size: 12px;
+            color: #9ca3af;
+        }
+        a {
+            color: #93c5fd;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>AI-чат з підрахунком вартості</h1>
+    <div class="small">
+        Проста сторінка для тесту API. Документація: <a href="/docs" target="_blank">/docs</a>
+    </div>
+</header>
+<main>
+    <div class="card">
+        <h2>1. Створення нової сесії</h2>
+        <p class="small">
+            Натисніть кнопку, щоб створити нову сесію чату. Ідентифікатор сесії буде використано в наступних запитах.
+        </p>
+        <button onclick="createSession()">Створити сесію</button>
+        <label>Поточний ID сесії:</label>
+        <input type="text" id="sessionId" readonly placeholder="Ще не створено">
+        <div id="sessionError" class="small" style="color:#fca5a5;"></div>
+    </div>
+
+    <div class="row">
+        <div class="card">
+            <h2>2. Надіслати повідомлення</h2>
+            <label for="userMessage">Повідомлення користувача:</label>
+            <textarea id="userMessage" placeholder="Введіть текст запиту до моделі..."></textarea>
+            <button onclick="sendMessage()">Надіслати</button>
+            <div id="sendError" class="small" style="color:#fca5a5;"></div>
+            <label>Відповідь моделі:</label>
+            <pre id="assistantReply">(тут з’явиться відповідь)</pre>
+            <label>Використання токенів і вартість:</label>
+            <pre id="usageInfo">(буде показано після першої відповіді)</pre>
+        </div>
+
+        <div class="card">
+            <h2>3. Переглянути історію сесії</h2>
+            <p class="small">Отримати всі повідомлення в цій сесії та загальну накопичену вартість.</p>
+            <button onclick="loadHistory()">Завантажити історію</button>
+            <label>JSON-відповідь:</label>
+            <pre id="historyJson">(тут буде JSON з історією)</pre>
+        </div>
+    </div>
+</main>
+
+<script>
+    async function createSession() {
+        document.getElementById("sessionError").textContent = "";
+        try {
+            const resp = await fetch("/sessions", {
+                method: "POST"
+            });
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                document.getElementById("sessionError").textContent =
+                    "Помилка створення сесії: " + (data.detail ?? resp.status);
+                return;
+            }
+            const data = await resp.json();
+            document.getElementById("sessionId").value = data.session_id;
+        } catch (e) {
+            document.getElementById("sessionError").textContent =
+                "Не вдалося підключитися до API";
+        }
+    }
+
+    async function sendMessage() {
+        document.getElementById("sendError").textContent = "";
+        const sessionId = document.getElementById("sessionId").value.trim();
+        const msg = document.getElementById("userMessage").value.trim();
+
+        if (!sessionId) {
+            document.getElementById("sendError").textContent =
+                "Спочатку створіть сесію.";
+            return;
+        }
+        if (!msg) {
+            document.getElementById("sendError").textContent =
+                "Введіть текст повідомлення.";
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/sessions/${encodeURIComponent(sessionId)}/messages`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ message: msg })
+            });
+
+            const data = await resp.json();
+            if (!resp.ok) {
+                document.getElementById("sendError").textContent =
+                    "Помилка відправки: " + (data.detail ?? resp.status);
+                return;
+            }
+
+            document.getElementById("assistantReply").textContent = data.reply ?? "";
+            document.getElementById("usageInfo").textContent =
+`Вхідні токени: ${data.prompt_tokens}
+Вихідні токени: ${data.completion_tokens}
+Разом токенів: ${data.total_tokens}
+Вартість повідомлення (USD): ${data.message_cost_usd}
+Загальна вартість сесії (USD): ${data.session_total_cost_usd}`;
+        } catch (e) {
+            document.getElementById("sendError").textContent =
+                "Не вдалося підключитися до API.";
+        }
+    }
+
+    async function loadHistory() {
+        const sessionId = document.getElementById("sessionId").value.trim();
+        if (!sessionId) {
+            document.getElementById("historyJson").textContent =
+                "Спочатку створіть сесію.";
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/sessions/${encodeURIComponent(sessionId)}`);
+            const data = await resp.json();
+            if (!resp.ok) {
+                document.getElementById("historyJson").textContent =
+                    "Помилка отримання історії: " + (data.detail ?? resp.status);
+                return;
+            }
+            document.getElementById("historyJson").textContent =
+                JSON.stringify(data, null, 2);
+        } catch (e) {
+            document.getElementById("historyJson").textContent =
+                "Не вдалося підключитися до API.";
+        }
+    }
+</script>
+</body>
+</html>
